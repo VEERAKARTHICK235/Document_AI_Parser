@@ -22,7 +22,7 @@ This project is a smart Document AI tool built with **Streamlit**, combining the
 
 📤 Outputs:
 - Downloadable Excel sheet of all line-items.
-- Gemini-generated invoice summary.
+- AI generated invoice summary.
 
 ---
 
@@ -53,9 +53,7 @@ Required for PDF to image conversion. Add its /bin path to POPPLER_PATH.
 
 streamlit run app.py
 
-## 🙋‍♂️ Author
-Karthickkumar S
-📫 LinkedIn • 🌐 Portfolio • 💻 GitHub
+
 
 
 
