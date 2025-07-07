@@ -1,0 +1,10 @@
+streamlit
+python-dotenv
+pytesseract
+pdf2image
+pillow
+opencv-python
+numpy
+pandas
+requests
+openpyxl
