@@ -9,8 +9,10 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
+
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 POPPLER_PATH = r"C:\Poppler\poppler-23.11.0\Library\bin"
+
 
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
