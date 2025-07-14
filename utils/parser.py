@@ -1,4 +1,4 @@
-import os, re, io, requests
+import os, re, io, requests, platform
 import numpy as np
 import pandas as pd
 import pytesseract
@@ -6,15 +6,30 @@ from PIL import Image
 from pdf2image import convert_from_bytes
 import cv2
 from dotenv import load_dotenv
+from pathlib import Path
 
-
+# ── Load environment variables ───────────────────────────
 load_dotenv()
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-POPPLER_PATH = r"C:\Poppler\poppler-23.11.0\Library\bin"
+# ── Setup Tesseract command ──────────────────────────────
+TESSERACT_CMD = os.getenv("TESSERACT_CMD")
+if not TESSERACT_CMD:
+    if platform.system() == "Windows":
+        TESSERACT_CMD = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    else:
+        TESSERACT_CMD = "/usr/bin/tesseract"
 
+pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
+# ── Setup Poppler path ───────────────────────────────────
+POPPLER_PATH = os.getenv("POPPLER_PATH")
+if not POPPLER_PATH:
+    if platform.system() == "Windows":
+        POPPLER_PATH = r"C:\Poppler\poppler-23.11.0\Library\bin"
+    else:
+        POPPLER_PATH = "/usr/bin"
 
+# ── Gemini API Setup ─────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -35,7 +50,7 @@ def call_gemini(prompt: str) -> str:
     except Exception as e:
         return f"Gemini Error: {e}"
 
-# Image pre‑processing
+# ── Image Preprocessing ──────────────────────────────────
 def preprocess(img: Image.Image) -> Image.Image:
     gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
     gray = cv2.bilateralFilter(gray, 11, 17, 17)
@@ -44,19 +59,19 @@ def preprocess(img: Image.Image) -> Image.Image:
     )
     return Image.fromarray(thresh)
 
-# Main parser 
+# ── Main OCR + NLP Parser ────────────────────────────────
 def process_file(uploaded):
-    # Load first page / image
+    # 1. Read page/image
     pil = (
         convert_from_bytes(uploaded.read(), poppler_path=POPPLER_PATH)[0]
         if uploaded.type == "application/pdf"
         else Image.open(uploaded)
     )
 
-    # OCR
+    # 2. OCR
     text = pytesseract.image_to_string(preprocess(pil))
 
-    # Extract items
+    # 3. Regex Parse
     rows = []
     skip = re.compile(r"(invoice|date|gst|state|city|total|tax|amount|vendor|balance|code)", re.I)
     pattern = re.compile(
@@ -64,28 +79,26 @@ def process_file(uploaded):
         re.I,
     )
 
-    for ln in text.splitlines():
-        ln = ln.strip()
+    for line in text.splitlines():
+        ln = line.strip()
         if not ln:
             continue
-
-        # Keep if pattern matches, else skip obvious headers
         if skip.search(ln) and not pattern.search(ln):
             continue
 
-        m = pattern.search(ln)
-        if not m:
+        match = pattern.search(ln)
+        if not match:
             continue
 
-        qty = int(m.group(1)) if m.group(1) else 1
-        name = m.group(2).strip()
-        price = float(m.group(3).lstrip("₹$").replace(",", ""))
+        qty = int(match.group(1)) if match.group(1) else 1
+        name = match.group(2).strip()
+        price = float(match.group(3).lstrip("₹$").replace(",", ""))
 
-        # Filter noise
+        # Clean noise
         if (
             len(name) < 3
             or name.lower() in {"%", "-", "x", "state", "total", "invoice", "amount", "code"}
-            or re.fullmatch(r"[A-Z0-9]{4,}", name)  
+            or re.fullmatch(r"[A-Z0-9]{4,}", name)
             or (name.isupper() and name.isalpha() and len(name) > 3)
         ):
             continue
@@ -105,23 +118,23 @@ def process_file(uploaded):
             "Net Amount": 0.0,
         })
 
-    # DataFrame + Grand Total 
+    # 4. DataFrame & Grand Total
     df = pd.DataFrame(rows)
-    grand_total = df["Net Amount"].sum()
+    total = df["Net Amount"].sum()
     df.loc[len(df.index)] = {
         "Product Name": "Grand Total",
         "Quantity": pd.NA,
         "Unit Price": pd.NA,
-        "Net Amount": round(grand_total, 2),
+        "Net Amount": round(total, 2),
     }
 
-    # Excel export
+    # 5. Excel export
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Line_Items")
     excel_bytes = buf.getvalue()
 
-    # AI Summary
+    # 6. Gemini summary
     summary = call_gemini(f"Summarize this invoice:\n{text}")
 
     return {
